@@ -3,6 +3,7 @@ import { Plugin, TFolder, TFile } from "obsidian";
 export default class FolderNoteViewPlugin extends Plugin {
 	private styleEl: HTMLStyleElement | null = null;
 	private observer: MutationObserver | null = null;
+	private updateTimeout: number | null = null;
 
 	async onload() {
 		// Initial setup
@@ -18,18 +19,35 @@ export default class FolderNoteViewPlugin extends Plugin {
 				if (file instanceof TFolder) {
 					this.createFolderNote(file);
 				}
-				this.updateFolderNotesUI();
+				this.debouncedUpdate();
 			})
 		);
 		this.registerEvent(
-			this.app.vault.on("delete", () => this.updateFolderNotesUI())
+			this.app.vault.on("delete", () => this.debouncedUpdate())
 		);
 		this.registerEvent(
-			this.app.vault.on("rename", () => this.updateFolderNotesUI())
+			this.app.vault.on("rename", () => this.debouncedUpdate())
 		);
 	}
 
+	/**
+	 * Debounced update to avoid rapid successive updates
+	 */
+	private debouncedUpdate(): void {
+		if (this.updateTimeout) {
+			window.clearTimeout(this.updateTimeout);
+		}
+		this.updateTimeout = window.setTimeout(() => {
+			this.updateFolderNotesUI();
+			this.updateTimeout = null;
+		}, 100);
+	}
+
 	onunload() {
+		if (this.updateTimeout) {
+			window.clearTimeout(this.updateTimeout);
+			this.updateTimeout = null;
+		}
 		if (this.styleEl) {
 			this.styleEl.remove();
 			this.styleEl = null;
@@ -49,7 +67,7 @@ export default class FolderNoteViewPlugin extends Plugin {
 	 */
 	private setupObserver(): void {
 		this.observer = new MutationObserver(() => {
-			this.updateFolderNotesUI();
+			this.debouncedUpdate();
 		});
 
 		const fileExplorer = document.querySelector(".nav-files-container");
@@ -125,11 +143,17 @@ export default class FolderNoteViewPlugin extends Plugin {
 	}
 
 	/**
-	 * Create a folder note for a folder
+	 * Create a folder note for a folder (as a sibling to match Periodic Notes)
 	 */
 	private async createFolderNote(folder: TFolder): Promise<TFile | null> {
 		const folderName = folder.name;
-		const notePath = `${folder.path}/${folderName}.md`;
+
+		// Create as sibling: Parent/Folder.md (to match Periodic Notes behavior)
+		const parent = folder.parent;
+		const parentPath = parent?.path;
+		const notePath = !parentPath || parentPath === "/" || parentPath === ""
+			? `${folderName}.md`
+			: `${parentPath}/${folderName}.md`;
 
 		// Check if it already exists
 		const existing = this.app.vault.getAbstractFileByPath(notePath);
@@ -149,15 +173,34 @@ export default class FolderNoteViewPlugin extends Plugin {
 
 	/**
 	 * Get the folder note for a folder (a note with the same name as the folder)
+	 * Checks two locations (sibling first for Periodic Notes compatibility):
+	 * 1. Sibling to the folder: Parent/Folder.md (alongside Parent/Folder/)
+	 * 2. Inside the folder: Folder/Folder.md
 	 */
 	private getFolderNote(folder: TFolder): TFile | null {
 		const folderName = folder.name;
-		const expectedPath = `${folder.path}/${folderName}.md`;
 
-		const file = this.app.vault.getAbstractFileByPath(expectedPath);
-		if (file instanceof TFile) {
-			return file;
+		// Check sibling to the folder first: Parent/Folder.md
+		// This is where Periodic Notes creates weekly/monthly notes
+		const parent = folder.parent;
+		if (parent) {
+			const parentPath = parent.path;
+			const siblingPath = parentPath === "/" || parentPath === ""
+				? `${folderName}.md`
+				: `${parentPath}/${folderName}.md`;
+			const siblingFile = this.app.vault.getAbstractFileByPath(siblingPath);
+			if (siblingFile instanceof TFile) {
+				return siblingFile;
+			}
 		}
+
+		// Check inside the folder: Folder/Folder.md
+		const insidePath = `${folder.path}/${folderName}.md`;
+		const insideFile = this.app.vault.getAbstractFileByPath(insidePath);
+		if (insideFile instanceof TFile) {
+			return insideFile;
+		}
+
 		return null;
 	}
 
