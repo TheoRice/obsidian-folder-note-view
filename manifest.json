@@ -1,0 +1,10 @@
+{
+	"id": "folder-note-view",
+	"name": "Folder Note View",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Click folders to open their folder note (a note with the same name as the folder). Folder notes are hidden from the file list.",
+	"author": "Your Name",
+	"authorUrl": "",
+	"isDesktopOnly": false
+}
